@@ -1,0 +1,9 @@
+.venv/
+venv/
+output-*/
+tools/opensbi-build/
+tools/*.bin
+tools/*.elf
+tools/*.img
+tools/*.itb
+tools/*.its
