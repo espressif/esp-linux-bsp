@@ -1,0 +1,92 @@
+From 8b87a911c9ce0823e9fcce615b0b3df4e7b8f7f1 Mon Sep 17 00:00:00 2001
+From: pokersfang <pokers.fang@adurosmart.com>
+Date: Wed, 2 Sep 2026 11:00:00 +0800
+Subject: [PATCH] esp32s31: avoid OpenSBI and bootloader memory overlap
+
+Move SPL above OpenSBI's runtime end at 0x2f043b90. Use PSRAM as the
+primary U-Boot bank because the remaining HP RAM cannot hold U-Boot's
+relocation reservations. Keep HP RAM as a secondary bank.
+
+Signed-off-by: pokersfang <pokers.fang@adurosmart.com>
+---
+ arch/riscv/dts/esp32s31.dts          | 22 +++++--------------
+ board/espressif/esp32s31/board.c     |  6 ------
+ configs/espressif_esp32s31_defconfig |  9 +++++----
+ 3 files changed, 10 insertions(+), 24 deletions(-)
+
+diff --git a/arch/riscv/dts/esp32s31.dts b/arch/riscv/dts/esp32s31.dts
+index 994654d806..e00a70b41e 100644
+--- a/arch/riscv/dts/esp32s31.dts
++++ b/arch/riscv/dts/esp32s31.dts
+@@ -67,22 +67,13 @@
+ 	};
+ 
+ 	/*
+-	 * HP-RAM bank above OpenSBI (0x2F000000-), capped below ROM data at
+-	 * 0x2F07FFAC by board_get_usable_ram_top().
++	 * Keep PSRAM as the primary bank so U-Boot relocates away from the
++	 * OpenSBI-protected HP-RAM range. HP-RAM remains available as bank 1.
+ 	 */
+-	memory@2f030000 {
++	memory {
+ 		bootph-all;
+ 		device_type = "memory";
+-		reg = <0x2f030000 0x00050000>;	/* 320 KB HP-RAM */
+-	};
+-
+-	/*
+-	 * PSRAM as a second bank so u-boot's lmb knows 0x50000000 is RAM (kernel
+-	 * load target); u-boot itself lives in HP-RAM per the cap above.
+-	 */
+-	memory@50000000 {
+-		bootph-all;
+-		device_type = "memory";
+-		reg = <0x50000000 0x01000000>;	/* 16 MB PSRAM */
++		reg = <0x50000000 0x01000000>,	/* 16 MB PSRAM */
++		      <0x2f030000 0x00050000>;	/* 320 KB HP-RAM */
+ 	};
+ };
+diff --git a/board/espressif/esp32s31/board.c b/board/espressif/esp32s31/board.c
+index c238a0eb16..1a10c1a436 100644
+--- a/board/espressif/esp32s31/board.c
++++ b/board/espressif/esp32s31/board.c
+@@ -25,12 +25,6 @@ void *board_fdt_blob_setup(int *err)
+ 	return fdt;
+ }
+ 
+-/* Cap RAM top below chip-ROM interface data at 0x2F07FFAC. */
+-phys_addr_t board_get_usable_ram_top(phys_size_t total_size)
+-{
+-	return 0x2f07e600;
+-}
+-
+ int board_init(void)
+ {
+ 	return 0;
+diff --git a/configs/espressif_esp32s31_defconfig b/configs/espressif_esp32s31_defconfig
+index f61f2356c1..95bac7f378 100644
+--- a/configs/espressif_esp32s31_defconfig
++++ b/configs/espressif_esp32s31_defconfig
+@@ -4,15 +4,16 @@ CONFIG_SYS_DCACHE_OFF=y
+ CONFIG_TEXT_BASE=0x50400000
+-CONFIG_SYS_MALLOC_LEN=0x18000
++CONFIG_SYS_MALLOC_LEN=0x10000
+ CONFIG_SYS_MALLOC_F_LEN=0x2000
+ CONFIG_NR_DRAM_BANKS=2
++CONFIG_NR_CPUS=2
+ CONFIG_HAS_CUSTOM_SYS_INIT_SP_ADDR=y
+ CONFIG_CUSTOM_SYS_INIT_SP_ADDR=0x2F07F000
+ CONFIG_ENV_SIZE=0x2000
+ CONFIG_DEFAULT_DEVICE_TREE="esp32s31"
+-CONFIG_SPL_TEXT_BASE=0x2F040000
++CONFIG_SPL_TEXT_BASE=0x2F048000
+ CONFIG_SPL_SYS_MALLOC_F_LEN=0x20000
+-CONFIG_SPL_BSS_START_ADDR=0x2F050000
+-CONFIG_SPL_BSS_MAX_SIZE=0x8000
++CONFIG_SPL_BSS_START_ADDR=0x2F052000
++CONFIG_SPL_BSS_MAX_SIZE=0x4000
+ CONFIG_SPL=y
+ CONFIG_SYS_LOAD_ADDR=0x50000000
+ CONFIG_ARCH_ESPRESSIF=y
+-- 
+2.43.0
