@@ -21,4 +21,4 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 export BUILD_DIR="${BUILD_DIR:-$IMAGES_DIR/../build}"
 
 exec "$SCRIPT_DIR/gen_esp_flash_image.sh" \
-    "$SCRIPT_DIR/../configs/esp32s31-layout.cfg" "$IMAGES_DIR"
+    "${ESP_LAYOUT_CFG:-$SCRIPT_DIR/../configs/esp32s31-layout.cfg}" "$IMAGES_DIR"

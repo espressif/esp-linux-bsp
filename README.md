@@ -1,7 +1,7 @@
 # ESP32-S31 Linux BSP
 
-> **⚠️ Espressif Fork**: This repository is Espressif's Linux BSP with support for ESP32S31.  
-> **⚠️ Developer Preview**: This branch (`integration/v1.0-esp32s31`) is currently in developer preview and is **not yet recommended for production use**. 
+> **⚠️ Espressif Fork**: This repository is Espressif's Linux BSP with support for ESP32S31.
+> **⚠️ Developer Preview**: This branch (`integration/v1.0-esp32s31`) is currently in developer preview and is **not yet recommended for production use**.
 > For branch strategy and maintenance policy, see the [Branch Strategy](#branch-strategy) section below.
 
 This repository contains the image layout and packaging tools used by the
@@ -21,6 +21,15 @@ SPL, U-Boot FIT, Linux device tree, XIP kernel, and cramfs root filesystem into
 `s31_full_flash.bin`.
 
 Set `ESP_ESPTOOL` when `esptool` is not available in `PATH`.
+
+## Flash layout
+
+[configs/esp32s31-layout.cfg](configs/esp32s31-layout.cfg) defines the default flash layout. Set `ESP_LAYOUT_CFG` (or pass a custom file to tools/gen_esp_flash_image.sh) to use a different layout. A custom file can source `$ESP_LAYOUT_BASE` to inherit the defaults and override individual values:
+
+```sh
+source "$ESP_LAYOUT_BASE"
+SLOT_ROOTFS=0x800000
+```
 
 ## Component verification helpers
 

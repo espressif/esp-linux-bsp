@@ -12,12 +12,14 @@
 #
 # Usage: gen_esp_flash_image.sh <chip-layout.cfg> <images_dir>
 #
+# Exports ESP_LAYOUT_BASE (default: configs/esp32s31-layout.cfg) before sourcing <chip-layout.cfg>.
+#
 # Inputs expected in <images_dir> (produced by Buildroot), named by the
 # layout configuration:
 #   $SPL_DTB_BIN   (u-boot-spl-dtb.bin) SPL flat binary + appended control dtb
 #   $UBOOT_ITB     (u-boot.itb)         FIT: OpenSBI fw_dynamic + U-Boot + dtb
 #   <kernel>.dtb   ($BASE_DTB, or BR2_LINUX_KERNEL_INTREE_DTS_NAME if set)
-#   $KERNEL_IMAGE  (xipImage)   XIP kernel (fetched from $BUILD_DIR if unstaged)
+#   $KERNEL_IMAGE  (xipImage)   kernel (fetched by name from $BUILD_DIR if unstaged)
 #   $ROOTFS_IMAGE  (rootfs.cramfs) root filesystem (optional; merged if present)
 # Output: $OUT_IMAGE (s31_full_flash.bin), via intermediate $SPL_APP_BIN.
 #
@@ -31,6 +33,10 @@ CFG="${1:?usage: gen_esp_flash_image.sh <chip-layout.cfg> <images_dir>}"
 IMAGES_DIR="${2:?usage: gen_esp_flash_image.sh <chip-layout.cfg> <images_dir>}"
 
 [ -f "$CFG" ] || { echo "✗ Error: layout cfg not found: $CFG"; exit 1; }
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+: "${ESP_LAYOUT_BASE:=$SCRIPT_DIR/../configs/esp32s31-layout.cfg}"
+export ESP_LAYOUT_BASE
+echo "gen_esp_flash_image: layout $CFG"
 # shellcheck disable=SC1090
 source "$CFG"
 
@@ -38,6 +44,13 @@ source "$CFG"
 : "${SPL_SRAM_ADDR:?SPL_SRAM_ADDR not set in $CFG}"
 : "${ESPTOOL_FLASH:?ESPTOOL_FLASH not set in $CFG}"
 : "${BUILD_DIR:=$IMAGES_DIR/../build}"
+
+: "${FLASH_SIZE:?FLASH_SIZE not set in $CFG}"
+: "${SLOT_SPL:?SLOT_SPL not set in $CFG}"
+: "${SLOT_UBOOT_ITB:?SLOT_UBOOT_ITB not set in $CFG}"
+: "${SLOT_DTB:?SLOT_DTB not set in $CFG}"
+: "${SLOT_KERNEL:?SLOT_KERNEL not set in $CFG}"
+: "${SLOT_ROOTFS:?SLOT_ROOTFS not set in $CFG}"
 
 # Artifact names, overridable per board in the layout cfg.
 : "${SPL_DTB_BIN:=u-boot-spl-dtb.bin}"
@@ -47,6 +60,9 @@ source "$CFG"
 : "${ROOTFS_IMAGE:=rootfs.cramfs}"
 : "${SPL_APP_BIN:=spl_app.bin}"
 : "${OUT_IMAGE:=s31_full_flash.bin}"
+
+echo "gen_esp_flash_image: layout spl=$SLOT_SPL uboot_itb=$SLOT_UBOOT_ITB" \
+     "dtb=$SLOT_DTB kernel=$SLOT_KERNEL rootfs=$SLOT_ROOTFS flash=$FLASH_SIZE"
 
 # --- Resolve esptool -----------------------------------------------------------
 if [ -n "${ESP_ESPTOOL:-}" ]; then
@@ -101,7 +117,7 @@ if [ ! -f "$KERNEL_IMAGE" ]; then
             break
         fi
     done
-    [ -n "$KDIR" ] && cp "$KDIR/arch/riscv/boot/xipImage" "$KERNEL_IMAGE"
+    [ -n "$KDIR" ] && cp "$KDIR/arch/riscv/boot/$KERNEL_IMAGE" "$KERNEL_IMAGE"
 fi
 
 for f in "$SPL_DTB_BIN" "$UBOOT_ITB" "$DTB" "$KERNEL_IMAGE"; do
@@ -125,22 +141,54 @@ echo "gen_esp_flash_image: wrapping SPL -> $SPL_APP_BIN (load $SPL_SRAM_ADDR)"
 "$ESPTOOL" --chip "$CHIP" elf2image $ESPTOOL_FLASH \
     --output "$SPL_APP_BIN" "$WORK_DIR/spl_wrapped.elf"
 
+# --- Every artifact must fit its slot ------------------------------------------
+SLOTS=(
+    "$SLOT_SPL $SPL_APP_BIN spl"
+    "$SLOT_UBOOT_ITB $UBOOT_ITB uboot_itb"
+    "$SLOT_DTB $DTB dtb"
+    "$SLOT_KERNEL $KERNEL_IMAGE kernel"
+)
+if [ -f "$ROOTFS_IMAGE" ]; then
+    SLOTS+=( "$SLOT_ROOTFS $ROOTFS_IMAGE rootfs" )
+else
+    echo "gen_esp_flash_image: note - $ROOTFS_IMAGE not staged, omitting its slot"
+fi
+prev_off= prev_file= prev_name=
+while read -r off file name; do
+    if [ -n "$prev_off" ]; then
+        size=$(( $(wc -c <"$prev_file") ))
+        if [ $((prev_off + size)) -gt "$off" ]; then
+            printf '✗ Error: %s is %d bytes but the %s slot at 0x%X holds %d (next slot %s at 0x%X)\n' \
+                "$prev_file" "$size" "$prev_name" "$prev_off" $((off - prev_off)) "$name" "$off"
+            exit 1
+        fi
+    fi
+    prev_off=$off prev_file=$file prev_name=$name
+done < <(for s in "${SLOTS[@]}"; do
+             set -- $s
+             printf '%d %s %s\n' "$(( $1 ))" "$2" "$3"
+         done | sort -n)
+size=$(( $(wc -c <"$prev_file") ))
+if [ $((prev_off + size)) -gt $((FLASH_SIZE)) ]; then
+    printf '✗ Error: %s is %d bytes but the %s slot at 0x%X holds %d (flash ends at 0x%X)\n' \
+        "$prev_file" "$size" "$prev_name" "$prev_off" $((FLASH_SIZE - prev_off)) $((FLASH_SIZE))
+    exit 1
+fi
+
 # --- Merge every present slot into one flashable image -------------------------
 echo "gen_esp_flash_image: merging slots -> $OUT_IMAGE"
 MERGE_ARGS=(
-    "${SLOT_SPL:-0x002000}"       "$SPL_APP_BIN"
-    "${SLOT_UBOOT_ITB:-0x100000}" "$UBOOT_ITB"
-    "${SLOT_DTB:-0x300000}"       "$DTB"
-    "${SLOT_KERNEL:-0x500000}"    "$KERNEL_IMAGE"
+    "$SLOT_SPL"       "$SPL_APP_BIN"
+    "$SLOT_UBOOT_ITB" "$UBOOT_ITB"
+    "$SLOT_DTB"       "$DTB"
+    "$SLOT_KERNEL"    "$KERNEL_IMAGE"
 )
 if [ -f "$ROOTFS_IMAGE" ]; then
-    MERGE_ARGS+=( "${SLOT_ROOTFS:-0xC00000}" "$ROOTFS_IMAGE" )
-else
-    echo "gen_esp_flash_image: note - $ROOTFS_IMAGE not staged, omitting its slot"
+    MERGE_ARGS+=( "$SLOT_ROOTFS" "$ROOTFS_IMAGE" )
 fi
 # No --pad-to-size: the image ends at the last slot for fast flashing.
 # shellcheck disable=SC2086
 "$ESPTOOL" --chip "$CHIP" merge-bin -o "$OUT_IMAGE" --format raw \
     $ESPTOOL_FLASH "${MERGE_ARGS[@]}"
 
-echo "gen_esp_flash_image: $OUT_IMAGE ($(stat -c%s "$OUT_IMAGE") bytes) ready in $IMAGES_DIR"
+echo "gen_esp_flash_image: $OUT_IMAGE ($(( $(wc -c <"$OUT_IMAGE") )) bytes) ready in $IMAGES_DIR"
