@@ -7,6 +7,17 @@
 This repository contains the image layout and packaging tools used by the
 ESP32-S31 Buildroot integration.
 
+## Board profiles
+
+- [ESP32-S31-Function-CoreBoard-1](boards/esp32s31-function-coreboard-1/README.md):
+  16 MB NOR flash and 16 MB Octal PSRAM.
+
+Build the board image with:
+
+```sh
+./tools/esp32s31_function_coreboard_1.sh all --esptool /path/to/esptool
+```
+
 ## Buildroot packaging
 
 Buildroot installs `tools/` and `configs/` as a host package. Its post-image
