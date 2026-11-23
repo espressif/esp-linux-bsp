@@ -55,7 +55,7 @@ source "$CFG"
 # Artifact names, overridable per board in the layout cfg.
 : "${SPL_DTB_BIN:=u-boot-spl-dtb.bin}"
 : "${UBOOT_ITB:=u-boot.itb}"
-: "${BASE_DTB:=esp32s31.dtb}"
+: "${BASE_DTB:=esp32s31-function-core-board-1.dtb}"
 : "${KERNEL_IMAGE:=xipImage}"
 : "${ROOTFS_IMAGE:=rootfs.cramfs}"
 : "${SPL_APP_BIN:=spl_app.bin}"
