@@ -20,6 +20,16 @@ The packager wraps the U-Boot SPL in the Espressif image format and merges the
 SPL, U-Boot FIT, Linux device tree, XIP kernel, and cramfs root filesystem into
 `s31_full_flash.bin`.
 
+It also writes `flash_args`, an esptool argument file: the flash settings on
+the first line, then the offset and file name of every slot. It flashes the same slots one by one, without the padding
+between them, and tools can read the slot offsets from it instead of the layout
+file:
+
+```sh
+cd <images_dir>
+esptool --chip esp32s31 write-flash @flash_args
+```
+
 Set `ESP_ESPTOOL` when `esptool` is not available in `PATH`.
 
 ## Flash layout

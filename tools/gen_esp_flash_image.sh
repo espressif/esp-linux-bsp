@@ -21,7 +21,9 @@
 #   <kernel>.dtb   ($BASE_DTB, or BR2_LINUX_KERNEL_INTREE_DTS_NAME if set)
 #   $KERNEL_IMAGE  (xipImage)   kernel (fetched by name from $BUILD_DIR if unstaged)
 #   $ROOTFS_IMAGE  (rootfs.cramfs) root filesystem (optional; merged if present)
-# Output: $OUT_IMAGE (s31_full_flash.bin), via intermediate $SPL_APP_BIN.
+# Output: $OUT_IMAGE (s31_full_flash.bin), via intermediate $SPL_APP_BIN, and
+#         $OUT_FLASH_ARGS (flash_args), an esptool argument file that flashes
+#         the same slots one by one: esptool --chip $CHIP write-flash @flash_args
 #
 # Tool resolution (env override -> HOST_DIR -> PATH):
 #   ESPTOOL : $ESP_ESPTOOL -> $HOST_DIR/bin/esptool[.py] -> esptool
@@ -60,6 +62,7 @@ source "$CFG"
 : "${ROOTFS_IMAGE:=rootfs.cramfs}"
 : "${SPL_APP_BIN:=spl_app.bin}"
 : "${OUT_IMAGE:=s31_full_flash.bin}"
+: "${OUT_FLASH_ARGS:=flash_args}"
 
 echo "gen_esp_flash_image: layout spl=$SLOT_SPL uboot_itb=$SLOT_UBOOT_ITB" \
      "dtb=$SLOT_DTB kernel=$SLOT_KERNEL rootfs=$SLOT_ROOTFS flash=$FLASH_SIZE"
@@ -192,3 +195,15 @@ fi
     $ESPTOOL_FLASH "${MERGE_ARGS[@]}"
 
 echo "gen_esp_flash_image: $OUT_IMAGE ($(( $(wc -c <"$OUT_IMAGE") )) bytes) ready in $IMAGES_DIR"
+
+# --- esptool argument file with the slot offsets -------------------------------
+# Same format as esptool's flash_args: the flash settings on the first line,
+# then one "offset file" pair per slot. It lets a tool flash the slots one by
+# one without knowing the layout: esptool --chip $CHIP write-flash @flash_args
+{
+    echo "$ESPTOOL_FLASH"
+    for (( i = 0; i < ${#MERGE_ARGS[@]}; i += 2 )); do
+        printf '0x%X %s\n' "$(( MERGE_ARGS[i] ))" "${MERGE_ARGS[i + 1]}"
+    done
+} > "$OUT_FLASH_ARGS"
+echo "gen_esp_flash_image: $OUT_FLASH_ARGS ready in $IMAGES_DIR"
